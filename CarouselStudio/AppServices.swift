@@ -4,6 +4,7 @@ import MatchingEngine
 import Persistence
 import PhotoSources
 import SwiftData
+import QuestEngine
 import TemplateEngine
 import os
 
@@ -44,6 +45,7 @@ final class AppServices {
 
     @ObservationIgnored private var cachedEmbedder: MobileCLIPEmbeddingProvider?
     @ObservationIgnored private var cachedStore: FileEmbeddingStore?
+    @ObservationIgnored private(set) var questCoordinator: DefaultQuestCoordinator?
 
     /// Loads (once) the bundled MobileCLIP-S0 towers.
     func embedder() async throws -> MobileCLIPEmbeddingProvider {
@@ -94,5 +96,34 @@ final class AppServices {
                 Task { @MainActor in progress(update) }
             }
         )
+    }
+
+    /// Creates and activates the long-running quest coordinator once photo access
+    /// has been granted. Safe to call multiple times — the coordinator is only
+    /// constructed on the first invocation.
+    func activateQuestEngine() async {
+        guard questCoordinator == nil else {
+            await questCoordinator?.activate()
+            return
+        }
+
+        let matcher = try? await templateMatcher(progress: { _ in })
+        guard let matcher else { return }
+
+        let coordinator = DefaultQuestCoordinator(
+            observer: PhotoKitLibraryObserver(),
+            templateStore: templateStore,
+            matcher: matcher,
+            policy: DefaultCoveragePolicy(),
+            reportStore: InMemoryQuestReportStore()
+        )
+        self.questCoordinator = coordinator
+        await coordinator.activate()
+        AppServices.logger.notice("Quest engine activated")
+    }
+
+    /// Deactivates the quest coordinator when the app moves to the background.
+    func deactivateQuestEngine() async {
+        await questCoordinator?.deactivate()
     }
 }
