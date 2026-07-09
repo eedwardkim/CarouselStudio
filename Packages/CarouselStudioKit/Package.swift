@@ -36,16 +36,22 @@ let package = Package(
         .target(name: "Persistence", dependencies: ["CoreModels"]),
 
         // Subsystem: template CRUD, validation, starter catalog.
-        .target(name: "TemplateEngine", dependencies: ["CoreModels"]),
+        .target(name: "TemplateEngine", dependencies: ["CoreModels", "Persistence"]),
 
         // Infrastructure: photo access abstraction (PhotoKit now, Google Photos
         // picker imports in Phase 4) and library change observation.
-        .target(name: "PhotoSources", dependencies: ["CoreModels"]),
+        .target(
+            name: "PhotoSources",
+            dependencies: ["CoreModels"],
+            linkerSettings: [
+                .linkedFramework("Photos"),
+            ]
+        ),
 
         // Subsystem: two-stage photo↔slot matching (MobileCLIP, then
         // Foundation Models for subjective slots in Phase 4). Resources are
         // the CLIP tokenizer's vocabulary + BPE merges; the Core ML towers
-        // themselves ship in the app bundle, not the package.
+        // themselves ship in the app bundle, not the package).
         .target(
             name: "MatchingEngine",
             dependencies: ["CoreModels", "PhotoSources"],
