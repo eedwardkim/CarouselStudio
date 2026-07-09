@@ -8,6 +8,7 @@ struct CarouselStudioApp: App {
         WindowGroup {
             TemplateListView()
                 .environment(services)
+                .preferredColorScheme(.dark)
         }
     }
 }

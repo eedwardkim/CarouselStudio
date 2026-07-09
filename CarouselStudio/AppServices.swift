@@ -1,7 +1,9 @@
 import CoreML
 import Foundation
 import MatchingEngine
+import Persistence
 import PhotoSources
+import SwiftData
 import TemplateEngine
 import os
 
@@ -14,9 +16,31 @@ import os
 final class AppServices {
     let photoSource = PhotoKitSource()
     let starterTemplates = BuiltInStarterTemplates()
+    let templateStore: SwiftDataTemplateStore
 
     static let logger = Logger(
         subsystem: "com.edwardkim.CarouselStudio", category: "matching")
+
+    init() {
+        let container = try! PersistenceSchema.makeContainer(inMemory: false)
+        self.templateStore = SwiftDataTemplateStore(container: container)
+    }
+
+    /// Seeds the bundled starter templates on first launch.
+    func seedStartersIfNeeded() async {
+        do {
+            let existing = try await templateStore.allTemplates()
+            if existing.isEmpty {
+                let starters = starterTemplates.starterTemplates()
+                for template in starters {
+                    try await templateStore.save(template)
+                }
+                AppServices.logger.info("Seeded \(starters.count) starter templates")
+            }
+        } catch {
+            AppServices.logger.error("Failed to seed starter templates: \(error.localizedDescription)")
+        }
+    }
 
     @ObservationIgnored private var cachedEmbedder: MobileCLIPEmbeddingProvider?
     @ObservationIgnored private var cachedStore: FileEmbeddingStore?
