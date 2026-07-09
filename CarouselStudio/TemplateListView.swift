@@ -8,6 +8,7 @@ import TemplateEngine
 struct TemplateListView: View {
     @Environment(AppServices.self) private var services
     @State private var path = NavigationPath()
+    @State private var didAttemptAutoOpen = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -32,6 +33,10 @@ struct TemplateListView: View {
             .task {
                 // Dev hook for CLI-driven smoke runs: `SIMCTL_CHILD_AUTO_OPEN_TEMPLATE=1
                 // simctl launch …` jumps straight into the first template.
+                // Only attempt once so returning to the list does not re-push
+                // the first template on top of the user's navigation stack.
+                guard !didAttemptAutoOpen else { return }
+                didAttemptAutoOpen = true
                 if ProcessInfo.processInfo.environment["AUTO_OPEN_TEMPLATE"] == "1",
                     let first = services.starterTemplates.starterTemplates().first,
                     path.isEmpty
