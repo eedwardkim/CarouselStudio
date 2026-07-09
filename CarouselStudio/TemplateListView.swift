@@ -1,6 +1,7 @@
 import CoreModels
 import SwiftUI
 import TemplateEngine
+import QuestEngine
 
 /// Phase-1 entry screen: browse the template gallery, now backed by the
 /// SwiftData template store, and create new templates from the toolbar.
@@ -11,6 +12,7 @@ struct TemplateListView: View {
     @State private var templates: [Template] = []
     @State private var isLoading = true
     @State private var loadError: Error?
+    @State private var showingEditor = false
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -33,15 +35,35 @@ struct TemplateListView: View {
                                 )
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
+                                if let report = services.latestReports[template.id] {
+                                    Text(coverageSummary(for: report))
+                                        .font(.caption)
+                                        .foregroundStyle(coverageColor(for: report))
+                                }
                             }
                             .padding(.vertical, 4)
                         }
+                    }
+                    .refreshable {
+                        try? await services.questCoordinator?.refresh(templateID: nil)
+                        await loadTemplates()
                     }
                 }
             }
             .navigationTitle("Templates")
             .navigationDestination(for: Template.self) { template in
                 SlotMatchView(template: template)
+            }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Add", systemImage: "plus") {
+                        showingEditor = true
+                    }
+                }
+            }
+            .sheet(isPresented: $showingEditor) {
+                TemplateEditorView()
+                    .environment(services)
             }
             .task {
                 await services.seedStartersIfNeeded()
@@ -80,6 +102,26 @@ struct TemplateListView: View {
         for await _ in services.templateStore.changes() {
             await loadTemplates()
         }
+    }
+
+    private func coverageSummary(for report: QuestReport) -> String {
+        let noneCount = report.coverage.filter { $0.level == .none }.count
+        let scarceCount = report.coverage.filter { $0.level == .scarce }.count
+        if noneCount > 0 {
+            return "⚠ \(noneCount) slot\(noneCount == 1 ? "" : "s") need photos"
+        } else if scarceCount > 0 {
+            return "→ \(scarceCount) slot\(scarceCount == 1 ? "" : "s") could use more photos"
+        } else {
+            return "✓ All slots covered"
+        }
+    }
+
+    private func coverageColor(for report: QuestReport) -> Color {
+        let noneCount = report.coverage.filter { $0.level == .none }.count
+        let scarceCount = report.coverage.filter { $0.level == .scarce }.count
+        if noneCount > 0 { return .orange }
+        if scarceCount > 0 { return .secondary }
+        return .green
     }
 }
 

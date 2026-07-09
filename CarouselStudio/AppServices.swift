@@ -1,4 +1,5 @@
 import CoreML
+import CoreModels
 import Foundation
 import MatchingEngine
 import Persistence
@@ -46,6 +47,10 @@ final class AppServices {
     @ObservationIgnored private var cachedEmbedder: MobileCLIPEmbeddingProvider?
     @ObservationIgnored private var cachedStore: FileEmbeddingStore?
     @ObservationIgnored private(set) var questCoordinator: DefaultQuestCoordinator?
+
+    /// The most recent quest report published for each template, suitable for
+    /// driving per-template coverage badges in the UI.
+    var latestReports: [CoreModels.Template.ID: QuestReport] = [:]
 
     /// Loads (once) the bundled MobileCLIP-S0 towers.
     func embedder() async throws -> MobileCLIPEmbeddingProvider {
@@ -98,6 +103,18 @@ final class AppServices {
         )
     }
 
+    /// Begins collecting the latest quest report for each template from the
+    /// coordinator's reports stream. Reports are stored on the main actor so
+    /// SwiftUI views can observe them directly.
+    func startObservingReports() {
+        guard let coordinator = questCoordinator else { return }
+        Task {
+            for await report in coordinator.reports() {
+                self.latestReports[report.templateID] = report
+            }
+        }
+    }
+
     /// Creates and activates the long-running quest coordinator once photo access
     /// has been granted. Safe to call multiple times — the coordinator is only
     /// constructed on the first invocation.
@@ -119,6 +136,7 @@ final class AppServices {
         )
         self.questCoordinator = coordinator
         await coordinator.activate()
+        startObservingReports()
         AppServices.logger.notice("Quest engine activated")
     }
 
