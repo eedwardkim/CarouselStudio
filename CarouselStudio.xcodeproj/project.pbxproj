@@ -307,7 +307,7 @@
 /* Begin XCLocalSwiftPackageReference section */
 		CA0000000000000000000010 /* XCLocalSwiftPackageReference "Packages/CarouselStudioKit" */ = {
 			isa = XCLocalSwiftPackageReference;
-			relativePath = "Packages/CarouselStudioKit";
+			relativePath = Packages/CarouselStudioKit;
 		};
 /* End XCLocalSwiftPackageReference section */
 

@@ -43,8 +43,17 @@ let package = Package(
         .target(name: "PhotoSources", dependencies: ["CoreModels"]),
 
         // Subsystem: two-stage photo↔slot matching (MobileCLIP, then
-        // Foundation Models for subjective slots in Phase 4).
-        .target(name: "MatchingEngine", dependencies: ["CoreModels", "PhotoSources"]),
+        // Foundation Models for subjective slots in Phase 4). Resources are
+        // the CLIP tokenizer's vocabulary + BPE merges; the Core ML towers
+        // themselves ship in the app bundle, not the package.
+        .target(
+            name: "MatchingEngine",
+            dependencies: ["CoreModels", "PhotoSources"],
+            resources: [
+                .copy("Resources/clip-vocab.json"),
+                .copy("Resources/clip-merges.txt"),
+            ]
+        ),
 
         // Subsystem: tag-overlap song recommendation from the curated corpus.
         .target(name: "MusicMatching", dependencies: ["CoreModels"]),
@@ -53,6 +62,15 @@ let package = Package(
         .target(
             name: "QuestEngine",
             dependencies: ["CoreModels", "TemplateEngine", "PhotoSources", "MatchingEngine"]
+        ),
+
+        // Dev-only smoke harness: exercises the real MobileCLIP towers +
+        // tokenizer + slot matcher from the command line (macOS), no
+        // simulator needed. Deliberately depends on everything *except*
+        // Persistence so it also builds under bare Command Line Tools.
+        .executableTarget(
+            name: "MatchingSmokeCLI",
+            dependencies: ["CoreModels", "PhotoSources", "MatchingEngine", "TemplateEngine"]
         ),
 
         .testTarget(

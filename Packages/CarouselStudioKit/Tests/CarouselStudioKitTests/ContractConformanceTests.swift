@@ -177,7 +177,7 @@ private actor StubCoordinator: QuestCoordinating {
         )
         let match = try await StubTemplateMatcher().match(template, options: .default)
         #expect(Set(match.candidatesBySlot.keys) == Set(template.slots.map(\.id)))
-        #expect(match.candidatesBySlot.values.allSatisfy(\.isEmpty))
+        #expect(match.candidatesBySlot.values.allSatisfy { $0.isEmpty })
     }
 
     @Test func slotMatcherYieldsNothingForEmptyCorpus() async throws {

@@ -2,9 +2,12 @@ import SwiftUI
 
 @main
 struct CarouselStudioApp: App {
+    @State private var services = AppServices()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            TemplateListView()
+                .environment(services)
         }
     }
 }
