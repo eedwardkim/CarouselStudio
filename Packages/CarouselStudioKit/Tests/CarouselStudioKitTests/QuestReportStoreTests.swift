@@ -132,6 +132,37 @@ private func makeReport(
         try await store.deleteReports(for: UUID())
     }
 
+    // MARK: persistence across process restart
+
+    /// Documents the persistence contract for the production `QuestReportStore`:
+    /// quest reports drive delta messaging ("3 new candidates since last week"),
+    /// so they must survive a process restart. A relaunch composes a brand-new
+    /// store instance; a persisted implementation must replay everything saved
+    /// before the process died.
+    ///
+    /// The app currently wires `InMemoryQuestReportStore` into the quest
+    /// coordinator (AppServices.activateQuestEngine), which loses all history
+    /// on relaunch — this test fails until a persisted implementation exists
+    /// and is composed instead.
+    @Test func reportsSurviveProcessRestart() async throws {
+        let templateID = UUID()
+        let report = makeReport(templateID: templateID)
+
+        // "First launch": the quest loop saves a report.
+        let firstLaunch = InMemoryQuestReportStore()
+        try await firstLaunch.save(report)
+
+        // "Second launch": the composition root builds a fresh store instance.
+        // Only process memory was lost; the report must still be there.
+        let secondLaunch = InMemoryQuestReportStore()
+        let latest = try await secondLaunch.latestReport(for: templateID)
+        #expect(
+            latest == report,
+            "quest reports must survive process restart; a new store instance must replay saved reports")
+        let history = try await secondLaunch.history(for: templateID, limit: 10)
+        #expect(history == [report])
+    }
+
     // MARK: isolation between templateIDs
 
     @Test func differentTemplateIDsAreStoredIndependently() async throws {
