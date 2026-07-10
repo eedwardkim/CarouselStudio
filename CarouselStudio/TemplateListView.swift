@@ -65,6 +65,7 @@ struct TemplateListView: View {
                 }
             }
             .navigationTitle("Templates")
+            .toolbarColorScheme(.dark, for: .navigationBar)
             .background(Color.black)
             .navigationDestination(for: Template.self) { template in
                 SlotMatchView(template: template)

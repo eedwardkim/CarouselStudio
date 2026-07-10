@@ -56,7 +56,7 @@ struct SlotMatchView: View {
             .padding(.horizontal, 16)
             .padding(.top, 4)
         }
-        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             if session == nil {
                 let newSession = MatchSession(template: template, services: services)
