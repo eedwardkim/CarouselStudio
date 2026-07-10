@@ -241,6 +241,39 @@ private struct FakePhotoSource: PhotoSource {
     }
 }
 
+/// A photo library whose contents can change between matching passes,
+/// simulating inserts/edits arriving through `PhotoLibraryObserving`.
+private final class MutablePhotoLibrary: @unchecked Sendable {
+    private let lock = NSLock()
+    private var ids: [String]
+
+    init(_ ids: [String]) { self.ids = ids }
+
+    var assetIDs: [String] {
+        get { lock.withLock { ids } }
+        set { lock.withLock { ids = newValue } }
+    }
+}
+
+/// A `PhotoSource` view over a `MutablePhotoLibrary`; each call serves the
+/// library's current contents via a throwaway `FakePhotoSource` snapshot.
+private struct EvolvingPhotoSource: PhotoSource {
+    let kind: PhotoSourceKind = .photoKit
+    let library: MutablePhotoLibrary
+
+    private var snapshot: FakePhotoSource { FakePhotoSource(assetIDs: library.assetIDs) }
+
+    func requestAccess() async -> PhotoAccessStatus { .full }
+
+    func assets(matching query: AssetQuery) -> AsyncThrowingStream<PhotoAsset, Error> {
+        snapshot.assets(matching: query)
+    }
+
+    func image(for id: PhotoAssetID, variant: ImageVariant) async throws -> CGImage {
+        try await snapshot.image(for: id, variant: variant)
+    }
+}
+
 /// Deterministic 2-d "model": every image embeds to [1, 0]; text embeds to
 /// [0.6, 0.8]. Counts image-tower calls so tests can prove cache hits.
 private actor CountingEmbedder: EmbeddingProviding {
@@ -329,6 +362,42 @@ struct DefaultTemplateMatcherTests {
 
         #expect(await embedder.callCount() == 3)  // a re-embedded, b cached
         #expect(updated.candidatesBySlot.count == 2)
+    }
+
+    @Test("update re-embeds only inserted and modified assets, never the whole corpus")
+    func updateEmbedsOnlyTheChange() async throws {
+        let library = MutablePhotoLibrary(["a", "b", "c"])
+        let source = EvolvingPhotoSource(library: library)
+        let embedder = CountingEmbedder()
+        let url = FileManager.default.temporaryDirectory
+            .appending(path: "matcher-test-\(UUID().uuidString).plist")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let matcher = DefaultTemplateMatcher(
+            photoSource: source,
+            embedder: embedder,
+            embeddingStore: FileEmbeddingStore(fileURL: url),
+            slotMatcher: CosineSlotMatcher()
+        )
+
+        let first = try await matcher.match(template, options: .default)
+        #expect(await embedder.callCount() == 3)
+
+        // The library gains one photo and one existing photo is edited.
+        library.assetIDs = ["a", "b", "c", "d"]
+        let change = PhotoLibraryChange(
+            inserted: [PhotoAssetID(source: .photoKit, rawValue: "d")],
+            modified: [PhotoAssetID(source: .photoKit, rawValue: "b")])
+        let updated = try await matcher.update(
+            first, applying: change, for: template, options: .default)
+
+        // Exactly the changed assets hit the image tower: "d" (new) and "b"
+        // (stale embedding). "a" and "c" must be served from the cache — the
+        // quest loop's per-change budget depends on this.
+        #expect(await embedder.callCount() == 5)
+        for slot in template.slots {
+            let candidates = try #require(updated.candidatesBySlot[slot.id])
+            #expect(candidates.count == 4)
+        }
     }
 
     @Test("slotless template matches to an empty result, not an error")

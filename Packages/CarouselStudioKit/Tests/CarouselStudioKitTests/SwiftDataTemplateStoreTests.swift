@@ -19,6 +19,11 @@ import enum CoreModels.SlotJudgment
         return SwiftDataTemplateStore(container: container)
     }
 
+    private func makeStoreWithContainer() throws -> (SwiftDataTemplateStore, ModelContainer) {
+        let container = try PersistenceSchema.makeContainer(inMemory: true)
+        return (SwiftDataTemplateStore(container: container), container)
+    }
+
     private func sampleTemplate(
         id: UUID = UUID(),
         name: String = "Travel Post",
@@ -143,6 +148,57 @@ import enum CoreModels.SlotJudgment
         #expect(all.count == 2)
         #expect(all[0].name == "Second")
         #expect(all[1].name == "First")
+    }
+
+    /// Re-saving a template — even completely unchanged — must not destroy the
+    /// match scores and feedback events hanging off its slots.
+    ///
+    /// `save` replaces a template's slots wholesale (delete old rows, insert
+    /// fresh ones with the same UUIDs). `Persistence.Slot` cascades to
+    /// `SlotMatchScore` and `FeedbackEvent`, so the replacement wipes every
+    /// score and feedback row accumulated for the template, and the fresh slot
+    /// rows are new object identities that nothing re-links to.
+    @Test func resaveKeepsSlotMatchScoresAndFeedbackEvents() async throws {
+        let (store, container) = try makeStoreWithContainer()
+        let slotID = UUID()
+        let template = sampleTemplate(slots: [
+            Slot(id: slotID, position: 0, criteria: "a scenic view", judgment: SlotJudgment.objective)
+        ])
+        try await store.save(template)
+
+        // Attach a match score and a feedback event to the persisted slot,
+        // the way the matching pipeline and feedback recorder will.
+        let sideContext = ModelContext(container)
+        let persistedSlot = try #require(
+            try sideContext.fetch(
+                FetchDescriptor<Persistence.Slot>(predicate: #Predicate { $0.uuid == slotID })
+            ).first)
+        let candidate = Persistence.Candidate(
+            assetID: PhotoAssetID(source: .photoKit, rawValue: "ASSET-1"))
+        sideContext.insert(candidate)
+        let score = Persistence.SlotMatchScore(clipScore: 0.9)
+        sideContext.insert(score)
+        score.slot = persistedSlot
+        score.candidate = candidate
+        let feedback = Persistence.FeedbackEvent(signal: .accepted)
+        sideContext.insert(feedback)
+        feedback.slot = persistedSlot
+        feedback.candidate = candidate
+        try sideContext.save()
+
+        // Re-save the identical template — a no-op edit from the user's view.
+        try await store.save(template)
+
+        // The score and feedback rows must still exist and still reference the
+        // same slot UUID. (#require on the counts so a wiped table fails here
+        // instead of dereferencing dangling relationships below.)
+        let verifyContext = ModelContext(container)
+        let scores = try verifyContext.fetch(FetchDescriptor<Persistence.SlotMatchScore>())
+        let feedbackEvents = try verifyContext.fetch(FetchDescriptor<Persistence.FeedbackEvent>())
+        try #require(scores.count == 1, "re-save must not delete SlotMatchScore rows")
+        try #require(feedbackEvents.count == 1, "re-save must not delete FeedbackEvent rows")
+        #expect(scores.first?.slot?.uuid == slotID)
+        #expect(feedbackEvents.first?.slot?.uuid == slotID)
     }
 
     /// Slots round-trip correctly through the store.
